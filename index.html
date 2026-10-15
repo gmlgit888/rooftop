@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>頂樓地標導覽 AR WebApp</title>
+    
+    <!-- 引入 A-Frame 框架 (用於 3D 渲染) -->
+    <script src="https://aframe.io"></script>
+    <!-- 引入 AR.js (用於地理位置 AR 功能) -->
+    <script src="https://githack.com"></script>
+    
+    <style>
+        /* 網頁 UI 樣式 */
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        #ui-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 85%;
+            max-width: 400px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 10;
+            text-align: center;
+            display: none; /* 初始隱藏，點擊建築物才顯示 */
+        }
+        #ui-overlay h2 { margin: 0 0 5px 0; color: #333; font-size: 1.2rem; }
+        #ui-overlay p { margin: 0; color: #666; font-size: 0.9rem; line-height: 1.4; }
+        
+        #permission-btn {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            padding: 12px 24px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,122,255,0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- iOS 需要使用者點擊按鈕來主動授權羅盤權限 -->
+    <button id="permission-btn" onclick="initAR()">開啟頂樓導覽</button>
+
+    <!-- AR 畫布場景 -->
+    <a-scene
+        vr-mode-ui="enabled: false"
+        embedded
+        arjs="sourceType: webcam; debugUIEnabled: false;">
+        
+        <!-- AR 相機：隨手機 GPS 與羅盤自動旋轉 -->
+        <a-camera gps-camera rotation-reader></a-camera>
+        
+        <!-- 靜態地標容器：我們會用 JavaScript 動態把建築物加進這裡 -->
+        
+    </a-scene>
+
+    <!-- 底部細節資訊彈出卡片 -->
+    <div id="ui-overlay">
+        <h2 id="building-name">建築物名稱</h2>
+        <p id="building-desc">這裡會顯示關於這棟建築物的簡短描述...</p>
+    </div>
+
+    <script>
+        // 1. 預設你從頂樓看出去的周邊建築物資料庫 (請更換為真實的經緯度)
+        const buildingsData = [
+            {
+                name: "東側台北101大樓",
+                lat: 25.033964,
+                lng: 121.564468,
+                desc: "曾為世界第一高樓，結構設計融合傳統與現代，是標誌性的金融摩天大樓。"
+            },
+            {
+                name: "北側新光摩天大樓",
+                lat: 25.046536,
+                lng: 121.515277,
+                desc: "位於站前商圈的核心地標，頂樓設有知名的景觀展望台。"
+            },
+            {
+                name: "遠方體育巨蛋",
+                lat: 25.044147,
+                lng: 121.560647,
+                desc: "大型綜合多功能體育館，可容納達 4 萬名觀眾，常用於大型演唱會與賽事。"
+            }
+        ];
+
+        // 2. 初始化 AR 與權限處理
+        function initAR() {
+            // 隱藏授權按鈕
+            document.getElementById('permission-btn').style.display = 'none';
+
+            // 請求 iOS 設備的羅盤定向權限 (iOS 13+)
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            loadLandmarks();
+                        } else {
+                            alert('需要羅盤權限才能定位建築物方向！');
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // Android 或桌面端瀏覽器直接載入
+                loadLandmarks();
+            }
+        }
+
+        // 3. 將地標資料動態渲染至 AR 空間
+        function loadLandmarks() {
+            const container = document.getElementById('landmark-container');
+
+            buildingsData.forEach((bld, index) => {
+                // 創建一個 3D 實體物件
+                const entity = document.createElement('a-entity');
+                
+                // 設定該物件的經緯度，AR.js 會自動計算它在畫面中的相對方位
+                entity.setAttribute('gps-entity-place', `latitude: ${bld.lat}; longitude: ${bld.lng};`);
+                
+                // 設定 3D 文字標籤 (在手機畫面中漂浮的字)
+                entity.setAttribute('text', {
+                    value: bld.name,
+                    align: 'center',
+                    color: '#FFF',
+                    width: 6, // 3D 空間中的文字寬度
+                    backgroundColor: '#007AFF',
+                    backgroundPadding: 0.2,
+                    wrapCount: 15
+                });
+                
+                // 為了讓文字始終面向使用者手機，加上 look-at 屬性
+                entity.setAttribute('look-at', '[gps-camera]');
+                // 縮放大小調整
+                entity.setAttribute('scale', '4 4 4');
+
+                // 監聽點擊事件：當使用者在手機畫面上「點擊」這個漂浮文字時
+                entity.addEventListener('click', () => {
+                    showBuildingDetails(bld.name, bld.desc);
+                });
+
+                // 將地標加入場景
+                container.appendChild(entity);
+            });
+        }
+
+        // 4. 顯示底部細節字卡
+        function showBuildingDetails(name, desc) {
+            document.getElementById('building-name').innerText = name;
+            document.getElementById('building-desc').innerText = desc;
+            
+            const overlay = document.getElementById('ui-overlay');
+            overlay.style.display = 'block';
+            
+            // 點擊卡片任何地方可以將其隱藏
+            overlay.onclick = () => { overlay.style.display = 'none'; };
+        }
+    </script>
+</body>
+</html>
