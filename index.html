@@ -5,13 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>頂樓地標導覽 AR WebApp</title>
     
-    <!-- 使用穩定的 A-Frame 與 AR.js 版本 -->
+    <!-- 使用高度優化且相容性最佳的 A-Frame 與 AR.js 組合 -->
     <script src="https://aframe.io"></script>
     <script src="https://githack.com"></script>
     
     <style>
-        body {
+        body, html {
             margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
             overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: #000;
@@ -37,7 +40,7 @@
         #permission-container {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85);
+            background: rgba(0, 0, 0, 0.9);
             z-index: 9999;
             display: flex;
             flex-direction: column;
@@ -64,22 +67,20 @@
 </head>
 <body>
 
-    <!-- 權限與啟動遮罩 -->
+    <!-- 啟動引導遮罩 -->
     <div id="permission-container">
         <h3>頂樓導覽 AR 系統</h3>
-        <p>請點擊下方按鈕以授權相機與定位羅盤</p>
+        <p>請點擊下方按鈕以啟動相機與定位羅盤</p>
         <button id="permission-btn" onclick="initAR()">開啟頂樓導覽</button>
     </div>
 
-    <!-- AR 場景 -->
+    <!-- AR 場景：交給 AR.js 內建機制去初始化相機，不再手動干預 -->
     <a-scene
         vr-mode-ui="enabled: false"
         embedded
-        arjs="sourceType: webcam; debugUIEnabled: false; videoInjected: true;">
+        arjs="sourceType: webcam; debugUIEnabled: false;">
         
         <a-camera gps-camera rotation-reader></a-camera>
-        
-        <!-- 確保這個 ID 在 JavaScript 呼叫前就存在於 HTML 中 -->
         
     </a-scene>
 
@@ -89,21 +90,19 @@
     </div>
 
     <script>
-        // 預設地標資料
         const buildingsData = [
             { name: "東側台北101大樓", lat: 25.033964, lng: 121.564468, desc: "曾為世界第一高樓，結構設計融合傳統與現代。" },
             { name: "北側新光摩天大樓", lat: 25.046536, lng: 121.515277, desc: "位於站前商圈的核心地標，頂樓設有景觀展望台。" },
             { name: "遠方體育巨蛋", lat: 25.044147, lng: 121.560647, desc: "大型綜合多功能體育館，可容納達 4 萬名觀眾。" }
         ];
 
-        // 判斷是否為 iOS 裝置
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
         async function initAR() {
             const btn = document.getElementById('permission-btn');
-            btn.innerText = "處理中...";
+            btn.innerText = "正在初始化...";
 
-            // 1. 優先處理 iOS 特有的羅盤權限
+            // 1. 如果是 iOS，只在第一時間向系統討取最嚴格的羅盤權限，完全不碰相機
             if (isIOS && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
                     const response = await DeviceOrientationEvent.requestPermission();
@@ -113,54 +112,26 @@
                         return;
                     }
                 } catch (e) {
-                    alert('羅盤授權出錯: ' + e);
+                    alert('羅盤授權失敗: ' + e);
                     btn.innerText = "重新開啟頂樓導覽";
                     return;
                 }
             }
 
-            // 2. 請求相機權限
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" } 
-                });
-                // 成功獲取後暫時關閉，釋放給 AR.js
-                stream.getTracks().forEach(track => track.stop());
-                
-                // 3. 權限皆允許，啟動系統
-                startARSystem();
-
-            } catch (err) {
-                // 根據平台顯示正確的提示文字
-                if (isIOS) {
-                    alert("無法取得相機權限，請確認 iOS Safari 的相機權限已開啟。\n錯誤: " + err.message);
-                } else {
-                    alert("無法取得相機權限，請確保瀏覽器已允許此網站取用相機。\n錯誤: " + err.message);
-                }
-                btn.innerText = "重新開啟頂樓導覽";
-            }
-        }
-
-        function startARSystem() {
+            // 2. 羅盤過關（或非 iOS 裝置）後，直接隱藏遮罩，露出下方的 a-scene
             document.getElementById('permission-container').style.display = 'none';
             
-            // 強迫 AR.js 重新計算並渲染網頁視窗
+            // 3. 這一行至關重要：強迫瀏覽器重新佈局，此時底層的 AR.js 就會乾淨、無衝突地直接喚醒相機
             window.dispatchEvent(new Event('resize'));
             
-            // 安全地載入地標
+            // 4. 載入 3D 地標文字
             loadLandmarks();
         }
 
         function loadLandmarks() {
             const container = document.getElementById('landmark-container');
-            
-            // 加強防錯機制：如果真的找不到 container，在 console 報錯而不會讓整支程式卡死
-            if (!container) {
-                console.error("錯誤：找不到 #landmark-container 元素！網頁結構尚未載入完全。");
-                return;
-            }
+            if (!container) return;
 
-            // 清空容器，避免重複載入
             container.innerHTML = "";
 
             buildingsData.forEach((bld) => {
@@ -178,7 +149,7 @@
                 });
                 
                 entity.setAttribute('look-at', '[gps-camera]');
-                entity.setAttribute('scale', '5 5 5');
+                entity.setAttribute('scale', '6 6 6'); // 稍微放大字體
 
                 entity.addEventListener('click', () => {
                     showBuildingDetails(bld.name, bld.desc);
@@ -186,7 +157,7 @@
 
                 container.appendChild(entity);
             });
-            console.log("地標資料已成功載入 AR 場景中。");
+            console.log("AR 地標載入完成！");
         }
 
         function showBuildingDetails(name, desc) {
