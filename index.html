@@ -93,35 +93,42 @@
             { name: "遠方體育巨蛋", lat: 25.044147, lng: 121.560647, desc: "大型綜合多功能體育館，可容納達 4 萬名觀眾。" }
         ];
 
+        // 修正後的初始化函數
         async function initAR() {
-            // 1. 第一步：在使用者點擊的當下，主動向 iOS 申請相機權限，破解 Safari 的封鎖
+            const btn = document.getElementById('permission-btn');
+            btn.innerText = "處理中...";
+
+            // 1. 【第一步】必須在點擊的第一時間「立刻」請求羅盤權限，不能有任何 await 擋在前面！
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const response = await DeviceOrientationEvent.requestPermission();
+                    if (response !== 'granted') {
+                        alert('需要羅盤權限才能精確定位地標方向！');
+                        btn.innerText = "重新開啟頂樓導覽";
+                        return;
+                    }
+                } catch (e) {
+                    alert('羅盤授權出錯: ' + e);
+                    btn.innerText = "重新開啟頂樓導覽";
+                    return;
+                }
+            }
+
+            // 2. 【第二步】羅盤過關後，緊接著請求相機權限
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
                 });
                 
-                // 成功拿到相機流後，先關閉它，讓給 AR.js 接管
+                // 成功拿到相機串流後關閉它，交還給 AR.js
                 stream.getTracks().forEach(track => track.stop());
+                
+                // 3. 【第三步】所有權限皆允許，正式啟動 AR 系統
+                startARSystem();
+
             } catch (err) {
                 alert("無法取得相機權限，請至 iOS 設定中允許 Safari 使用相機。\n錯誤資訊: " + err.message);
-                return;
-            }
-
-            // 2. 第二步：處理 iOS 羅盤權限
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const response = await DeviceOrientationEvent.requestPermission();
-                    if (response === 'granted') {
-                        startARSystem();
-                    } else {
-                        alert('需要羅盤權限才能精確定位地標方向！');
-                    }
-                } catch (e) {
-                    alert('羅盤授權出錯: ' + e);
-                }
-            } else {
-                // Android 或非 iOS 系統直接啟動
-                startARSystem();
+                btn.innerText = "重新開啟頂樓導覽";
             }
         }
 
@@ -129,7 +136,7 @@
             // 隱藏權限遮罩
             document.getElementById('permission-container').style.display = 'none';
             
-            // 3. 第三步：手動觸發 AR.js 重新調整相機大小與初始化，解決全黑空白問題
+            // 手動觸發變更視窗大小，強迫 AR.js 渲染相機畫面
             window.dispatchEvent(new Event('resize'));
             
             loadLandmarks();
@@ -142,13 +149,12 @@
                 const entity = document.createElement('a-entity');
                 entity.setAttribute('gps-entity-place', `latitude: ${bld.lat}; longitude: ${bld.lng};`);
                 
-                // 為了在手機上更容易看清，調整了字體大小與縮放
                 entity.setAttribute('text', {
                     value: bld.name,
                     align: 'center',
                     color: '#FFFFFF',
                     width: 8,
-                    backgroundColor: '#FF3B30', /* 改用更醒目的紅色標籤 */
+                    backgroundColor: '#FF3B30',
                     backgroundPadding: 0.3,
                     wrapCount: 12
                 });
